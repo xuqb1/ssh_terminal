@@ -91,6 +91,14 @@
 
 非 Windows 下为当前目录同名文件。
 
+## 依赖
+
+- [CUI](https://github.com/yappologistic/CUI)：即时模式 GUI 库，提供 `cui.h`、`cui_app.h`、`cui_internal.h`、`cui_icons.h`
+- [libssh](https://www.libssh.org/)：SSH / SFTP
+- Windows：MSVC 或 MinGW，链接 `comdlg32.lib`、`shell32.lib`、`ole32.lib`、`ws2_32.lib`
+
+把 `ssh_terminal.c`、`my_terminal.c/h` 和 CUI 的头文件放进同一工程，配置好 libssh 的头文件和库路径即可编译。
+
 ## 构建
 
 需要：
@@ -119,4 +127,4 @@
 
 ## 许可
 
-基于 CUI（MIT）和 libssh（LGPL）。使用前请遵守各自许可。
+基于 CUI（MIT）。使用前请遵守各自许可。

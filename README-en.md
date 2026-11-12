@@ -91,6 +91,14 @@ An SSH terminal and SFTP file manager written in C with the CUI library and libs
 
 On non-Windows, the same filenames in the current directory.
 
+## Dependencies
+
+- [CUI](https://github.com/yappologistic/CUI): immediate-mode GUI library, provides `cui.h`, `cui_app.h`, `cui_internal.h`, `cui_icons.h`
+- [libssh](https://www.libssh.org/): SSH / SFTP
+- Windows: MSVC or MinGW, link `comdlg32.lib`, `shell32.lib`, `ole32.lib`, `ws2_32.lib`
+
+Add `ssh_terminal.c`, `my_terminal.c/h` and the CUI headers to one project, point the compiler at libssh's headers and libraries, and build.
+
 ## Building
 
 Requires:
@@ -119,4 +127,4 @@ Donations welcome. Thank you.
 
 ## License
 
-Built on CUI (MIT) and libssh (LGPL). Follow their licenses.
+Built on CUI (MIT). Follow their licenses.
