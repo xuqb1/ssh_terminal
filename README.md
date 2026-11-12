@@ -1,6 +1,8 @@
 # SSH Terminal
 
-一个用 C 语言 + [CUI 库](https://github.com/yappologistic/CUI) + libssh 写的 SSH 终端与 SFTP 文件管理器，单文件实现（`ssh_terminal.c`），Windows 为主，POSIX 分支保留。
+[![GitHub stars](https://img.shields.io/github/stars/xuqb1/ssh_terminal?style=social)](https://github.com/xuqb1/ssh_terminal)
+
+一个用 C 语言 + [CUI 库](https://github.com/yappologistic/CUI) + libssh 写的 SSH 终端与 SFTP 文件管理器，单文件实现（`ssh_terminal.c`），Windows 为主，POSIX 分支保留。如果这个工具对你有帮助，欢迎给个 Star ⭐，谢谢！https://github.com/xuqb1/ssh_terminal
 
 ![SSH Terminal 截图](snipshop.png)
 
@@ -124,6 +126,9 @@
 - Email：qb_xu@126.com
 
 欢迎捐赠，感谢支持。
+
+如果这个项目对你有用，点个 Star ⭐ 支持一下：
+https://github.com/xuqb1/ssh_terminal
 
 ## 许可
 

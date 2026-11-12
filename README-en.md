@@ -1,6 +1,8 @@
 # SSH Terminal
 
-An SSH terminal and SFTP file manager written in C with the CUI library and libssh, in a single file (`ssh_terminal.c`). Windows is the primary target; POSIX branches are kept.
+[![GitHub stars](https://img.shields.io/github/stars/xuqb1/ssh_terminal?style=social)](https://github.com/xuqb1/ssh_terminal)
+
+An SSH terminal and SFTP file manager written in C with the CUI library and libssh, in a single file (`ssh_terminal.c`). Windows is the primary target; POSIX branches are kept. If this tool helps you, please give it a Star ⭐. Thank you! https://github.com/xuqb1/ssh_terminal
 
 ![SSH Terminal screenshot](snipshop-en.png)
 
@@ -124,6 +126,9 @@ Add `ssh_terminal.c` and its dependencies to your build. On Windows, place `ssh_
 - Email: qb_xu@126.com
 
 Donations welcome. Thank you.
+
+If this project is useful to you, a Star ⭐ goes a long way:
+https://github.com/xuqb1/ssh_terminal
 
 ## License
 
