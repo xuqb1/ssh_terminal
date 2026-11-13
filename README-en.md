@@ -25,6 +25,7 @@ An SSH terminal and SFTP file manager written in C with the [CUI library](https:
 - Adjustable terminal font size (8–32), persisted
 - ANSI colors (16 / 256 / 24-bit)
 - Selection highlight, scroll follow, manual wheel scroll
+- Right-click for Select all / Copy / Paste / Clear
 
 ### Live stats
 - CPU / RAM / Swap usage

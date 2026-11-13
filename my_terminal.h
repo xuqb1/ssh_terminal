@@ -14,11 +14,16 @@ typedef struct my_terminal_opts {
     float size;
     const char *prompt;
     bool no_input;
+    char lang;
 } my_terminal_opts;
 
 typedef struct my_terminal_result {
     const char *raw_input;
     bool interrupt;
+    bool select_all;      /* 全选 */
+    bool copy;            /* 复制选中 */
+    bool paste;           /* 粘贴剪贴板 */
+    bool clear; 
 } my_terminal_result;
 
 void my_terminal_init(cui_terminal_buffer *t, char *text, size_t text_cap,

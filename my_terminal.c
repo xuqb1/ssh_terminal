@@ -19,6 +19,14 @@
 static struct { cui_id id; double top; bool follow; } g_my_scroll[MY_MAX_TERMS];
 static int g_my_scroll_count = 0;
 
+
+static bool g_term_ctx_open = false;
+static float g_term_ctx_x = 0, g_term_ctx_y = 0;
+static int   g_term_ctx_tab = -1;   /* 哪个终端右键的 */
+
+//extern char lang;
+#define T(zh, en) (lang == 'z' ? (zh) : (en))
+
 static double *my__get_scroll(cui_id id, bool *follow) {
     for (int i = 0; i < g_my_scroll_count; i++)
         if (g_my_scroll[i].id == id) {
@@ -497,8 +505,9 @@ my_terminal_result my_terminal_ex(cui_ctx *ui, const char *id_str,
                                   const my_terminal_opts *opts) {
     my_terminal_result res = { NULL, false };
     my_terminal_opts d; memset(&d, 0, sizeof d);
+    d.lang = 'z';
     if (!opts) opts = &d;
-
+                
     cui_id id = cui_make_id(ui, id_str ? id_str : "my-term");
     cui_id vid = id ^ 0x7E2Du, wid = id ^ 0x7E2Eu;
 
@@ -571,7 +580,92 @@ my_terminal_result my_terminal_ex(cui_ctx *ui, const char *id_str,
     cui_interact vr = cui__interact(ui, vid, 0);
     if (vr.pressed) ui->focus = vid;
 
-    my__sel_state *sel = my__get_sel(vid);
+    /* ===== 右键菜单 ===== */
+    my__sel_state *sel = my__get_sel(vid);   /* 先拿到 sel，菜单要用 */
+
+    if (vr.hovered && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) {
+        g_term_ctx_open = true;
+        g_term_ctx_x = ui->mx;
+        g_term_ctx_y = ui->my;
+        g_term_ctx_tab = (int)vid;   /* 用 vid 区分不同终端 */
+    }
+
+    if (g_term_ctx_open && g_term_ctx_tab == (int)vid) {
+        float item_h = 28;
+        float menu_w = 120;
+        float menu_h = item_h * 4 + 8;
+        float mx = g_term_ctx_x, my = g_term_ctx_y;
+        float vw = cui_viewport_size(ui).x, vh = cui_viewport_size(ui).y;
+        if (mx + menu_w > vw) mx = vw - menu_w - 4;
+        if (my + menu_h > vh) my = vh - menu_h - 4;
+        if (mx < 4) mx = 4;
+        if (my < 4) my = 4;
+
+        /* 遮罩，拦截外部点击 */
+        cui_id backdrop_id = cui_make_id(ui, "term-ctx-backdrop");
+        int backdrop_node = cui__float_begin(ui, backdrop_id, 99, 0, CUI__PLACE_POINT, 0);
+        ui->nodes[backdrop_node].fx = 0;
+        ui->nodes[backdrop_node].fy = 0;
+        ui->nodes[backdrop_node].w = CUI_PX(vw);
+        ui->nodes[backdrop_node].h = CUI_PX(vh);
+        ui->nodes[backdrop_node].flags |= CUI_NF_INTERACTIVE;
+        cui__float_end(ui);
+        cui_interact bvr = cui__interact(ui, backdrop_id, 0);
+
+        /* 菜单本体 */
+        cui_id menu_id = cui_make_id(ui, "term-ctx-menu");
+        int menu_node = cui__float_begin(ui, menu_id, 100, 0, CUI__PLACE_POINT, 0);
+        ui->nodes[menu_node].fx = mx;
+        ui->nodes[menu_node].fy = my;
+        ui->nodes[menu_node].w = CUI_PX(menu_w);
+        ui->nodes[menu_node].h = CUI_PX(menu_h);
+        cui__open(ui, menu_node);
+            cui_box(ui, .width = CUI_FILL, .height = CUI_FILL, .pad = 4, .gap = 0,
+                    .bg = CUI_COLOR_SURFACE_RAISED, .border = 1,
+                    .border_color = CUI_COLOR_BORDER_STRONG, .radius = 6) {
+                static const char *items_zh[] = { "全选", "复制", "粘贴", "清屏" };
+                static const char *items_en[] = { "Select all", "Copy", "Paste", "Clear" };
+                const char **items = (opts->lang == 'z') ? items_zh : items_en;
+                for (int k = 0; k < 4; k++) {
+                    if (cui_button(ui, items[k], .variant = CUI_BUTTON_GHOST,
+                                   .full_width = true, .size = CUI_SIZE_SM)) {
+                        switch (k) {
+                        case 0:   /* 全选 */
+                            sel->a = (my__pos){ 0, 0 };
+                            sel->b = (my__pos){ t->count - 1,
+                                                (int)my__tm_line(t, t->count - 1)->cols };
+                            sel->has_sel = true;
+                            break;
+                        case 1:   /* 复制 */
+                            if (sel->has_sel) {
+                                static char copybuf[64 * 1024];
+                                int n = my__copy_selection(t, sel->a, sel->b,
+                                                            copybuf, sizeof copybuf);
+                                if (n > 0 && ui->platform.set_clipboard)
+                                    ui->platform.set_clipboard(ui->platform.user, copybuf);
+                                sel->has_sel = false;
+                            }
+                            break;
+                        case 2:   /* 粘贴 */
+                            res.paste = true;
+                            break;
+                        case 3:   /* 清屏 */
+                            res.clear = true;
+                            break;
+                        }
+                        g_term_ctx_open = false;
+                    }
+                }
+            }
+        cui__close(ui);
+        cui__float_end(ui);
+
+        if (bvr.pressed || cui_key_pressed(ui, CUI_KEY_ESCAPE))
+            g_term_ctx_open = false;
+    }
+    
+    //my__sel_state *
+    //sel = my__get_sel(vid);
 
     /* 选区：鼠标按下 / 拖动 / 松开 */
     int hit_line = -1, hit_col = -1;

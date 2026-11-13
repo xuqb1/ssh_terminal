@@ -4353,7 +4353,8 @@ static void terminals_panel(cui_ctx *ui) {
         }
     }
 
-    my_terminal_opts topts = { ._ = 0, .height = -1.0f, .prompt = "$ ", .size=g_term_font_size };
+        my_terminal_opts topts = { ._ = 0, .height = -1.0f, .prompt = "$ ",
+                               .size = g_term_font_size, .lang = lang };
     my_terminal_result res = my_terminal_ex(ui, "term-active", &g_tab_term[g_ssh_tab], &topts);
     if (g_tab_chan[g_ssh_tab]) {
         if (res.interrupt) {
@@ -4363,6 +4364,24 @@ static void terminals_panel(cui_ctx *ui) {
             ssh_channel_write(g_tab_chan[g_ssh_tab], res.raw_input, (uint32_t)strlen(res.raw_input));
             cui_request_wakeup(ui, 0.05f);
         }
+        if (res.paste) {
+            const char *clip = NULL;
+            if (ui->platform.get_clipboard)
+                clip = ui->platform.get_clipboard(ui->platform.user);
+            if (clip && clip[0]) {
+                char buf[4096]; size_t o = 0;
+                for (const char *p = clip; *p && o + 1 < sizeof buf; p++) {
+                    if (*p == '\n') buf[o++] = '\r';
+                    else if (*p != '\r') buf[o++] = *p;
+                }
+                buf[o] = 0;
+                if (o > 0) ssh_channel_write(g_tab_chan[g_ssh_tab], buf, (uint32_t)o);
+            }
+        }
+        
+    }
+    if (res.clear) {
+        my_terminal_clear(&g_tab_term[g_ssh_tab]);
     }
 }
 
