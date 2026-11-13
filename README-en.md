@@ -2,7 +2,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/xuqb1/ssh_terminal?style=social)](https://github.com/xuqb1/ssh_terminal)
 
-An SSH terminal and SFTP file manager written in C with the CUI library and libssh, in a single file (`ssh_terminal.c`). Windows is the primary target; POSIX branches are kept. If this tool helps you, please give it a Star ⭐. Thank you! https://github.com/xuqb1/ssh_terminal
+An SSH terminal and SFTP file manager written in C with the [CUI library](https://github.com/yappologistic/CUI) and [libssh](https://www.libssh.org/), in a single file (`ssh_terminal.c`). Windows is the primary target; POSIX branches are kept. If this tool helps you, please give it a Star ⭐. Thank you! https://github.com/xuqb1/ssh_terminal
 
 ![SSH Terminal screenshot](snipshop-en.png)
 
@@ -70,6 +70,17 @@ An SSH terminal and SFTP file manager written in C with the CUI library and libs
 - One-click run, copy to clipboard, double-click to edit
 - Commands persisted
 
+### Common commands
+- 80+ built-in Linux commands in 8 categories:
+  Files & disks, Processes & services, Network, System, Text, nano, vi/vim, Java
+- Category dropdown filter plus name/description/code search
+- Sort by category, name or code; default is category + name
+- Commands use `{1}`..`{5}` for parameters; double-click opens a form
+- The form has Chinese/English hints, fill, preview, edit and run
+- Custom commands: add / edit / delete, stored in an external file and reused across sessions
+- Custom commands are marked and kept separate from built-ins; built-ins are read-only
+- Commands that need an extra package say "requires xxx" in the description
+
 ### Port forwarding
 - Local forward (-L): local port → address the remote can reach
 - Saved per session, up to 8 tunnels per session
@@ -82,13 +93,14 @@ An SSH terminal and SFTP file manager written in C with the CUI library and libs
 - Chinese/English switch
 - Window size, split ratios and panel visibility persisted
 - Settings: download folder, external editor, SSH key, text file extensions and no-extension names
-- Status bar log (last 100 entries); key actions also show a toast
+- Status bar log (last 100 entries) plus a paste hint on the right; key actions also show a toast
 - About dialog: features, contact, donation note
 
 ## Persistence
 
 - Sessions and settings: `%APPDATA%\CUI\sessions.ini`
 - Commands: `%APPDATA%\CUI\commands.ini`
+- Custom common commands: `%APPDATA%\CUI\linux_commands.ini`
 - Transfer history: `%APPDATA%\CUI\updownload.ini`
 
 On non-Windows, the same filenames in the current directory.
@@ -96,7 +108,7 @@ On non-Windows, the same filenames in the current directory.
 ## Dependencies
 
 - [CUI](https://github.com/yappologistic/CUI): immediate-mode GUI library, provides `cui.h`, `cui_app.h`, `cui_internal.h`, `cui_icons.h`
-- [libssh](https://www.libssh.org/): SSH / SFTP
+- [libssh](https://www.libssh.org/): SSH / SFTP (source: [gitlab.com/libssh/libssh-mirror](https://gitlab.com/libssh/libssh-mirror), GitHub mirror: [github.com/libssh/libssh-mirror](https://github.com/libssh/libssh-mirror))
 - Windows: MSVC or MinGW, link `comdlg32.lib`, `shell32.lib`, `ole32.lib`, `ws2_32.lib`
 
 Add `ssh_terminal.c`, `my_terminal.c/h` and the CUI headers to one project, point the compiler at libssh's headers and libraries, and build.
@@ -132,4 +144,4 @@ https://github.com/xuqb1/ssh_terminal
 
 ## License
 
-Built on CUI (MIT). Follow their licenses.
+Built on [CUI](https://github.com/yappologistic/CUI) (MIT) and [libssh](https://www.libssh.org/) (LGPL). Follow their licenses.

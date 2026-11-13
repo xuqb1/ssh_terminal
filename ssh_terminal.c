@@ -435,6 +435,554 @@ static char g_cmd_add_body[4096] = "";
 static bool g_cmd_add_cr = true;
 static int g_cmd_edit_idx = -1;   /* -1 = 添加，>= 0 = 编辑 */
 
+
+/* ========== Linux 常用指令 ========== */
+
+typedef struct {
+    char category_zh[64], category_en[64];
+    char name_zh[128],    name_en[128];
+    char desc_zh[256],    desc_en[256];
+    char body[1024];
+    char hint_zh[5][128], hint_en[5][128];
+    char example[1024];
+    bool add_cr;
+    bool builtin;
+} linux_cmd;
+
+#define MAX_LINUX_CMDS 256
+static linux_cmd *g_linux_cmds = NULL;
+static int g_linux_cmd_count = 0;
+static int g_linux_cmd_cap = 0;
+static char g_linux_filter[128] = "";
+static int g_linux_cat_filter = 0;   /* 0 = 全部，>0 = 选中第几个分类 */
+static cui_table_sort g_linux_sort = { -1, false };
+static bool g_linux_run_dlg = false;
+static int  g_linux_run_idx = -1;
+static char g_linux_args[5][256];
+static char g_linux_preview[2048];
+
+static bool g_linux_add_dlg = false;
+static bool g_linux_edit_dlg = false;
+static int  g_linux_edit_idx = -1;
+static bool g_linux_del_dlg = false;
+static int  g_linux_del_idx = -1;
+static linux_cmd g_linux_edit_buf;
+
+/* 参数提示：空串表示无此参数 */
+static const linux_cmd g_linux_builtin[] = {
+    /* ---- 文件与磁盘 ---- */
+    { "文件与磁盘", "Files & disks", "查看磁盘使用", "Disk usage",
+      "显示各挂载点的磁盘用量", "Show disk usage by mount point",
+      "df -h {1}",
+      { "挂载点，例如 / 或 /data；留空显示全部", "", "", "", "" },
+      { "Mount point, e.g. / or /data; empty for all", "", "", "", "" },
+      "df -h /", true, true },
+    { "文件与磁盘", "Files & disks", "查看目录大小", "Folder size",
+      "统计目录下每个子项的大小", "Size of each item in a folder",
+      "du -sh {1}/*",
+      { "目录，例如 /var/log；用 . 表示当前", "", "", "", "" },
+      { "Folder, e.g. /var/log; use . for current", "", "", "", "" },
+      "du -sh /var/log/*", true, true },
+    { "文件与磁盘", "Files & disks", "查找大文件", "Find large files",
+      "查找大于指定大小的文件", "Find files larger than a size",
+      "find {1} -type f -size +{2} -exec ls -lh {} \\;",
+      { "起始目录，例如 /var", "大小，例如 100M 或 1G", "", "", "" },
+      { "Start folder, e.g. /var", "Size, e.g. 100M or 1G", "", "", "" },
+      "find /var -type f -size +100M -exec ls -lh {} \\;", true, true },
+    { "文件与磁盘", "Files & disks", "查找文件", "Find files",
+      "按文件名查找", "Find files by name",
+      "find {1} -name \"{2}\"",
+      { "起始目录，例如 /etc", "文件名模式，例如 *.conf", "", "", "" },
+      { "Start folder, e.g. /etc", "Name pattern, e.g. *.conf", "", "", "" },
+      "find /etc -name \"*.conf\"", true, true },
+    { "文件与磁盘", "Files & disks", "解压 tar.gz", "Extract tar.gz",
+      "解压到指定目录", "Extract into a folder",
+      "tar -xzvf {1} -C {2}",
+      { "压缩包路径，例如 app.tar.gz", "目标目录，例如 /opt", "", "", "" },
+      { "Archive, e.g. app.tar.gz", "Target folder, e.g. /opt", "", "", "" },
+      "tar -xzvf app.tar.gz -C /opt", true, true },
+    { "文件与磁盘", "Files & disks", "打包 tar.gz", "Create tar.gz",
+      "把目录打包成 tar.gz", "Pack a folder into tar.gz",
+      "tar -czvf {1}.tar.gz {1}",
+      { "目录名，例如 myapp", "", "", "", "" },
+      { "Folder name, e.g. myapp", "", "", "", "" },
+      "tar -czvf myapp.tar.gz myapp", true, true },
+    { "文件与磁盘", "Files & disks", "修改权限", "chmod",
+      "修改文件或目录权限", "Change file or folder permissions",
+      "chmod {1} {2}",
+      { "权限，例如 755 或 644", "路径，例如 /data/app.sh", "", "", "" },
+      { "Mode, e.g. 755 or 644", "Path, e.g. /data/app.sh", "", "", "" },
+      "chmod 755 /data/app.sh", true, true },
+    { "文件与磁盘", "Files & disks", "修改所有者", "chown",
+      "修改文件或目录所有者", "Change file or folder owner",
+      "chown {1}:{1} {2}",
+      { "用户/组，例如 root", "路径，例如 /data/app", "", "", "" },
+      { "User/group, e.g. root", "Path, e.g. /data/app", "", "", "" },
+      "chown root:root /data/app", true, true },
+
+    /* ---- 进程与服务 ---- */
+    { "进程与服务", "Processes & services", "按内存排序进程", "Processes by memory",
+      "列出占用内存最多的进程", "Processes using the most memory",
+      "ps -eo pid,comm,%cpu,%mem --sort=-%mem | head -n {1}",
+      { "显示条数，例如 10", "", "", "", "" },
+      { "How many rows, e.g. 10", "", "", "", "" },
+      "ps -eo pid,comm,%cpu,%mem --sort=-%mem | head -n 10", true, true },
+    { "进程与服务", "Processes & services", "查看端口占用（PID）", "Port owner (PID)",
+      "查看监听某端口的进程 PID", "PID listening on a port",
+      "ss -tlnp | grep ':{1} '",
+      { "端口号，例如 22 或 8080", "", "", "", "" },
+      { "Port, e.g. 22 or 8080", "", "", "", "" },
+      "ss -tlnp | grep ':22 '", true, true },
+    { "进程与服务", "Processes & services", "查看端口占用（lsof）", "Port owner (lsof)",
+      "用 lsof 查看某端口的进程", "Find the process on a port with lsof",
+      "lsof -i :{1}",
+      { "端口号，例如 3306", "", "", "", "" },
+      { "Port, e.g. 3306", "", "", "", "" },
+      "lsof -i :3306", true, true },
+    { "进程与服务", "Processes & services", "杀进程（TERM）", "Kill by PID (TERM)",
+      "向指定 PID 发送 TERM 信号", "Send TERM to a PID",
+      "kill -15 {1}",
+      { "进程 PID，例如 12345", "", "", "", "" },
+      { "Process PID, e.g. 12345", "", "", "", "" },
+      "kill -15 12345", true, true },
+    { "进程与服务", "Processes & services", "强制杀进程（KILL）", "Force kill (KILL)",
+      "向指定 PID 发送 KILL 信号", "Send KILL to a PID",
+      "kill -9 {1}",
+      { "进程 PID，例如 12345", "", "", "", "" },
+      { "Process PID, e.g. 12345", "", "", "", "" },
+      "kill -9 12345", true, true },
+    { "进程与服务", "Processes & services", "按名称杀进程", "Kill by name",
+      "结束所有名称匹配的进程", "Kill every process matching a name",
+      "pkill -f {1}",
+      { "进程名或命令行片段，例如 nginx", "", "", "", "" },
+      { "Process name or fragment, e.g. nginx", "", "", "", "" },
+      "pkill -f nginx", true, true },
+    { "进程与服务", "Processes & services", "查看服务状态", "Service status",
+      "systemd 服务状态", "systemd unit status",
+      "systemctl status {1}",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "systemctl status nginx", true, true },
+    { "进程与服务", "Processes & services", "启动服务", "Start service",
+      "systemd 启动服务", "Start a systemd unit",
+      "systemctl start {1}",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "systemctl start nginx", true, true },
+    { "进程与服务", "Processes & services", "停止服务", "Stop service",
+      "systemd 停止服务", "Stop a systemd unit",
+      "systemctl stop {1}",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "systemctl stop nginx", true, true },
+    { "进程与服务", "Processes & services", "重启服务", "Restart service",
+      "systemd 重启服务", "Restart a systemd unit",
+      "systemctl restart {1}",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "systemctl restart nginx", true, true },
+    { "进程与服务", "Processes & services", "列出运行中的服务", "Running services",
+      "所有正在运行的服务", "All running services",
+      "systemctl list-units --type=service --state=running",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "systemctl list-units --type=service --state=running", true, true },
+    { "进程与服务", "Processes & services", "列出失败的服务", "Failed services",
+      "所有失败的服务", "All failed services",
+      "systemctl --failed",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "systemctl --failed", true, true },
+    { "进程与服务", "Processes & services", "开机自启", "Enable service",
+      "设置服务开机自启", "Enable a unit at boot",
+      "systemctl enable {1}",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "systemctl enable nginx", true, true },
+    { "进程与服务", "Processes & services", "关闭开机自启", "Disable service",
+      "取消服务开机自启", "Disable a unit at boot",
+      "systemctl disable {1}",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "systemctl disable nginx", true, true },
+    { "进程与服务", "Processes & services", "查看服务日志", "Service log",
+      "实时跟踪服务日志", "Follow a unit's log",
+      "journalctl -u {1} -f",
+      { "服务名，例如 nginx", "", "", "", "" },
+      { "Unit name, e.g. nginx", "", "", "", "" },
+      "journalctl -u nginx -f", true, true },
+
+    /* ---- Java ---- */
+    { "Java", "Java", "查看所有 java 进程", "All Java processes",
+      "列出所有 java 进程的 PID 和命令", "PID and command of every Java process",
+      "ps -ef | grep [j]ava",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "ps -ef | grep [j]ava", true, true },
+    { "Java", "Java", "查看 java 进程（jps）", "Java processes (jps)",
+      "用 jps 列出 java 进程", "List Java processes with jps",
+      "jps -l",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "jps -l", true, true },
+    { "Java", "Java", "查看 java 版本", "Java version",
+      "显示当前 java 版本", "Show the java version",
+      "java -version",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "java -version", true, true },
+    { "Java", "Java", "查看 java 线程栈", "Java thread dump",
+      "打印指定 java 进程的线程栈", "Thread dump of a Java process",
+      "jstack {1}",
+      { "java 进程 PID", "", "", "", "" },
+      { "Java process PID", "", "", "", "" },
+      "jstack 12345", true, true },
+    { "Java", "Java", "查看 java 堆", "Java heap",
+      "显示 java 进程的堆信息", "Heap info of a Java process",
+      "jmap -heap {1}",
+      { "java 进程 PID", "", "", "", "" },
+      { "Java process PID", "", "", "", "" },
+      "jmap -heap 12345", true, true },
+
+    /* ---- 网络 ---- */
+    { "网络", "Network", "网络连通测试", "Ping",
+      "ping 指定主机", "Ping a host",
+      "ping -c 4 {1}",
+      { "主机或 IP，例如 8.8.8.8", "", "", "", "" },
+      { "Host or IP, e.g. 8.8.8.8", "", "", "", "" },
+      "ping -c 4 8.8.8.8", true, true },
+    { "网络", "Network", "查看路由", "Routes",
+      "显示路由表", "Show the routing table",
+      "ip route",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "ip route", true, true },
+    { "网络", "Network", "查看 IP", "IP addresses",
+      "显示所有网卡的 IP", "IPs of every interface",
+      "ip -br addr",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "ip -br addr", true, true },
+
+    /* ---- 系统信息 ---- */
+    { "系统信息", "System", "查看内存", "Memory",
+      "显示内存和 Swap 使用", "RAM and swap usage",
+      "free -h",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "free -h", true, true },
+    { "系统信息", "System", "查看系统版本", "OS release",
+      "显示发行版信息", "Distribution release",
+      "cat /etc/os-release",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "cat /etc/os-release", true, true },
+    { "系统信息", "System", "查看内核版本", "Kernel",
+      "显示内核版本", "Kernel version",
+      "uname -a",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "uname -a", true, true },
+    { "系统信息", "System", "查看登录用户", "Logged-in users",
+      "当前登录的用户", "Who is logged in",
+      "who",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "who", true, true },
+    { "系统信息", "System", "查看定时任务", "Crontab",
+      "当前用户的 crontab", "Current user's crontab",
+      "crontab -l",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "crontab -l", true, true },
+    { "系统信息", "System", "查看环境变量", "Environment",
+      "显示所有环境变量", "All environment variables",
+      "env | sort",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "env | sort", true, true },
+    /* ---- nano ---- */
+    { "nano", "nano", "用 nano 编辑文件", "Edit a file with nano",
+      "用 nano 打开或新建文件；保存 Ctrl+O，退出 Ctrl+X",
+      "Open or create a file with nano; Ctrl+O saves, Ctrl+X exits",
+      "nano {1}",
+      { "文件路径，例如 /etc/nginx/nginx.conf", "", "", "", "" },
+      { "File path, e.g. /etc/nginx/nginx.conf", "", "", "", "" },
+      "nano /etc/nginx/nginx.conf", true, true },
+    { "nano", "nano", "用 nano 只读打开", "Open read-only with nano",
+      "只读方式打开，防止误改",
+      "Open read-only to avoid accidental edits",
+      "nano -v {1}",
+      { "文件路径", "", "", "", "" },
+      { "File path", "", "", "", "" },
+      "nano -v /etc/passwd", true, true },
+
+    /* ---- vi/vim ---- */
+    { "vi/vim", "vi/vim", "用 vim 编辑文件", "Edit a file with vim",
+      "用 vim 打开文件；:w 保存，:q 退出，:wq 保存退出",
+      "Open a file with vim; :w saves, :q quits, :wq saves and quits",
+      "vim {1}",
+      { "文件路径，例如 /etc/hosts", "", "", "", "" },
+      { "File path, e.g. /etc/hosts", "", "", "", "" },
+      "vim /etc/hosts", true, true },
+    { "vi/vim", "vi/vim", "用 vim 只读打开", "Open read-only with vim",
+      "只读方式打开，防止误改",
+      "Open read-only to avoid accidental edits",
+      "vim -R {1}",
+      { "文件路径", "", "", "", "" },
+      { "File path", "", "", "", "" },
+      "vim -R /etc/passwd", true, true },
+    { "vi/vim", "vi/vim", "用 vim 打开并跳到行", "Open vim at a line",
+      "打开文件并跳到指定行",
+      "Open a file and jump to a line",
+      "vim +{1} {2}",
+      { "行号，例如 120", "文件路径", "", "", "" },
+      { "Line number, e.g. 120", "File path", "", "", "" },
+      "vim +120 /var/log/syslog", true, true },
+
+    /* ---- 文件与磁盘（补充） ---- */
+    { "文件与磁盘", "Files & disks", "解压 zip", "Extract zip",
+      "解压 zip 到指定目录；需要安装 unzip",
+      "Extract a zip into a folder; requires unzip",
+      "unzip {1} -d {2}",
+      { "压缩包路径，例如 app.zip", "目标目录，例如 /opt", "", "", "" },
+      { "Archive, e.g. app.zip", "Target folder, e.g. /opt", "", "", "" },
+      "unzip app.zip -d /opt", true, true },
+    { "文件与磁盘", "Files & disks", "创建 zip", "Create zip",
+      "把目录打包成 zip；需要安装 zip",
+      "Pack a folder into a zip; requires zip",
+      "zip -r {1}.zip {1}",
+      { "目录名，例如 myapp", "", "", "", "" },
+      { "Folder name, e.g. myapp", "", "", "", "" },
+      "zip -r myapp.zip myapp", true, true },
+    { "文件与磁盘", "Files & disks", "解压 tar.bz2", "Extract tar.bz2",
+      "解压 tar.bz2 到当前目录",
+      "Extract a tar.bz2 into the current folder",
+      "tar -xjvf {1}",
+      { "压缩包路径，例如 app.tar.bz2", "", "", "", "" },
+      { "Archive, e.g. app.tar.bz2", "", "", "", "" },
+      "tar -xjvf app.tar.bz2", true, true },
+    { "文件与磁盘", "Files & disks", "解压 tar.xz", "Extract tar.xz",
+      "解压 tar.xz 到当前目录",
+      "Extract a tar.xz into the current folder",
+      "tar -xJvf {1}",
+      { "压缩包路径，例如 app.tar.xz", "", "", "", "" },
+      { "Archive, e.g. app.tar.xz", "", "", "", "" },
+      "tar -xJvf app.tar.xz", true, true },
+    { "文件与磁盘", "Files & disks", "查看文件类型", "File type",
+      "显示文件的真实类型",
+      "Show the real type of a file",
+      "file {1}",
+      { "文件路径，例如 /bin/ls", "", "", "", "" },
+      { "File path, e.g. /bin/ls", "", "", "", "" },
+      "file /bin/ls", true, true },
+    { "文件与磁盘", "Files & disks", "查看文件大小", "File size",
+      "以人类可读格式显示文件信息",
+      "Show file info in human-readable form",
+      "ls -lh {1}",
+      { "文件或目录路径", "", "", "", "" },
+      { "File or folder path", "", "", "", "" },
+      "ls -lh /var/log/syslog", true, true },
+    { "文件与磁盘", "Files & disks", "查看目录树", "Directory tree",
+      "树状显示目录结构；需要安装 tree",
+      "Show a folder as a tree; requires tree",
+      "tree -L {1} {2}",
+      { "层级，例如 2", "目录，例如 /etc", "", "", "" },
+      { "Depth, e.g. 2", "Folder, e.g. /etc", "", "", "" },
+      "tree -L 2 /etc", true, true },
+    { "文件与磁盘", "Files & disks", "查找最近修改的文件", "Recently modified files",
+      "查找 N 天内修改过的文件",
+      "Find files modified within N days",
+      "find {1} -type f -mtime -{2}",
+      { "起始目录，例如 /var", "天数，例如 7", "", "", "" },
+      { "Start folder, e.g. /var", "Days, e.g. 7", "", "", "" },
+      "find /var -type f -mtime -7", true, true },
+    { "文件与磁盘", "Files & disks", "同步目录（本地）", "Sync folders (local)",
+      "用 rsync 同步两个本地目录；需要安装 rsync",
+      "Sync two local folders with rsync; requires rsync",
+      "rsync -av --delete {1}/ {2}/",
+      { "源目录，例如 /data/src", "目标目录，例如 /backup/src", "", "", "" },
+      { "Source, e.g. /data/src", "Target, e.g. /backup/src", "", "", "" },
+      "rsync -av --delete /data/src/ /backup/src/", true, true },
+
+    /* ---- 文本处理 ---- */
+    { "文本处理", "Text", "查看文件前 N 行", "First N lines",
+      "显示文件开头若干行",
+      "Show the first N lines of a file",
+      "head -n {1} {2}",
+      { "行数，例如 20", "文件路径", "", "", "" },
+      { "Lines, e.g. 20", "File path", "", "", "" },
+      "head -n 20 /var/log/syslog", true, true },
+    { "文本处理", "Text", "查看文件后 N 行", "Last N lines",
+      "显示文件末尾若干行",
+      "Show the last N lines of a file",
+      "tail -n {1} {2}",
+      { "行数，例如 50", "文件路径", "", "", "" },
+      { "Lines, e.g. 50", "File path", "", "", "" },
+      "tail -n 50 /var/log/syslog", true, true },
+    { "文本处理", "Text", "统计文件行数", "Count lines",
+      "统计文件的行数、词数、字节数",
+      "Lines, words and bytes of a file",
+      "wc -l {1}",
+      { "文件路径", "", "", "", "" },
+      { "File path", "", "", "", "" },
+      "wc -l /etc/passwd", true, true },
+    { "文本处理", "Text", "搜索文件内容", "Grep in a file",
+      "在文件中搜索关键词，显示行号",
+      "Search a file for a keyword, with line numbers",
+      "grep -n {1} {2}",
+      { "关键词，例如 error", "文件路径", "", "", "" },
+      { "Keyword, e.g. error", "File path", "", "", "" },
+      "grep -n error /var/log/syslog", true, true },
+    { "文本处理", "Text", "递归搜索目录内容", "Grep recursively",
+      "在目录下递归搜索关键词",
+      "Search a folder recursively for a keyword",
+      "grep -rn {1} {2}",
+      { "关键词，例如 TODO", "目录，例如 /data/app", "", "", "" },
+      { "Keyword, e.g. TODO", "Folder, e.g. /data/app", "", "", "" },
+      "grep -rn TODO /data/app", true, true },
+    { "文本处理", "Text", "按列提取", "Extract a column",
+      "用 awk 提取第 N 列",
+      "Extract the Nth column with awk",
+      "awk '{print ${1}}' {2}",
+      { "列号，例如 1 或 3", "文件路径", "", "", "" },
+      { "Column, e.g. 1 or 3", "File path", "", "", "" },
+      "awk '{print $1}' /etc/passwd", true, true },
+    { "文本处理", "Text", "替换文本", "Replace text",
+      "用 sed 替换文件中的文本（原地修改）",
+      "Replace text in a file in place with sed",
+      "sed -i 's/{1}/{2}/g' {3}",
+      { "原文本，例如 old", "新文本，例如 new", "文件路径", "", "" },
+      { "Old text, e.g. old", "New text, e.g. new", "File path", "", "" },
+      "sed -i 's/old/new/g' /etc/my.conf", true, true },
+    { "文本处理", "Text", "排序去重", "Sort and unique",
+      "排序并去掉重复行",
+      "Sort and remove duplicate lines",
+      "sort {1} | uniq",
+      { "文件路径", "", "", "", "" },
+      { "File path", "", "", "", "" },
+      "sort /etc/passwd | uniq", true, true },
+    { "文本处理", "Text", "比较两个文件", "Diff two files",
+      "逐行比较两个文件的差异",
+      "Compare two files line by line",
+      "diff -u {1} {2}",
+      { "文件 1", "文件 2", "", "", "" },
+      { "File 1", "File 2", "", "", "" },
+      "diff -u /etc/hosts /etc/hosts.bak", true, true },
+
+    /* ---- 进程与服务（补充） ---- */
+    { "进程与服务", "Processes & services", "查看进程树", "Process tree",
+      "树状显示进程父子关系",
+      "Show processes as a tree",
+      "ps -ef --forest",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "ps -ef --forest", true, true },
+    { "进程与服务", "Processes & services", "实时资源快照", "Resource snapshot",
+      "一次性输出系统资源快照",
+      "One-shot snapshot of system resources",
+      "vmstat 1 5",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "vmstat 1 5", true, true },
+    { "进程与服务", "Processes & services", "查看进程打开的文件", "Open files of a process",
+      "列出进程打开的文件；需要安装 lsof",
+      "List files opened by a process; requires lsof",
+      "lsof -p {1}",
+      { "进程 PID", "", "", "", "" },
+      { "Process PID", "", "", "", "" },
+      "lsof -p 12345", true, true },
+    { "进程与服务", "Processes & services", "查看进程启动命令", "Process command line",
+      "显示进程的完整启动命令",
+      "Show the full command line of a process",
+      "ps -p {1} -o pid,cmd",
+      { "进程 PID", "", "", "", "" },
+      { "Process PID", "", "", "", "" },
+      "ps -p 12345 -o pid,cmd", true, true },
+
+    /* ---- 网络（补充） ---- */
+    { "网络", "Network", "下载文件", "Download a file",
+      "用 curl 下载到当前目录，保留原文件名",
+      "Download to the current folder with curl, keeping the name",
+      "curl -O {1}",
+      { "URL，例如 https://example.com/file.tar.gz", "", "", "", "" },
+      { "URL, e.g. https://example.com/file.tar.gz", "", "", "", "" },
+      "curl -O https://example.com/file.tar.gz", true, true },
+    { "网络", "Network", "查看 HTTP 响应", "HTTP response",
+      "显示响应头和正文",
+      "Show response headers and body",
+      "curl -i {1}",
+      { "URL，例如 https://example.com", "", "", "", "" },
+      { "URL, e.g. https://example.com", "", "", "", "" },
+      "curl -i https://example.com", true, true },
+    { "网络", "Network", "测试端口连通", "Test a TCP port",
+      "测试主机端口是否开放；需要安装 nc",
+      "Test whether a host port is open; requires nc",
+      "nc -zv {1} {2}",
+      { "主机或 IP，例如 10.0.0.5", "端口，例如 3306", "", "", "" },
+      { "Host or IP, e.g. 10.0.0.5", "Port, e.g. 3306", "", "", "" },
+      "nc -zv 10.0.0.5 3306", true, true },
+    { "网络", "Network", "DNS 查询", "DNS lookup",
+      "查询域名的 DNS 记录；需要安装 dig",
+      "Query DNS records; requires dig",
+      "dig {1}",
+      { "域名，例如 example.com", "", "", "", "" },
+      { "Domain, e.g. example.com", "", "", "", "" },
+      "dig example.com", true, true },
+    { "网络", "Network", "查看连接状态", "Connection state",
+      "显示所有 TCP 连接及状态",
+      "Show all TCP connections and their state",
+      "ss -tan",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "ss -tan", true, true },
+
+    /* ---- 系统信息（补充） ---- */
+    { "系统信息", "System", "查看 CPU 信息", "CPU info",
+      "显示 CPU 型号、核心数等",
+      "Show CPU model and core count",
+      "lscpu",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "lscpu", true, true },
+    { "系统信息", "System", "查看块设备", "Block devices",
+      "显示磁盘和分区",
+      "Show disks and partitions",
+      "lsblk",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "lsblk", true, true },
+    { "系统信息", "System", "查看 PCI 设备", "PCI devices",
+      "列出 PCI 设备",
+      "List PCI devices",
+      "lspci",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "lspci", true, true },
+    { "系统信息", "System", "查看已安装包（Debian/Ubuntu）", "Installed packages (Debian/Ubuntu)",
+      "列出已安装的 deb 包",
+      "List installed deb packages",
+      "dpkg -l | grep {1}",
+      { "包名片段，例如 nginx", "", "", "", "" },
+      { "Package fragment, e.g. nginx", "", "", "", "" },
+      "dpkg -l | grep nginx", true, true },
+    { "系统信息", "System", "查看已安装包（RHEL/CentOS）", "Installed packages (RHEL/CentOS)",
+      "列出已安装的 rpm 包",
+      "List installed rpm packages",
+      "rpm -qa | grep {1}",
+      { "包名片段，例如 nginx", "", "", "", "" },
+      { "Package fragment, e.g. nginx", "", "", "", "" },
+      "rpm -qa | grep nginx", true, true },
+    { "系统信息", "System", "查看系统启动时间", "Boot time",
+      "显示系统上次启动的时间",
+      "Show when the system last booted",
+      "who -b",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "who -b", true, true },
+    { "系统信息", "System", "查看系统负载", "Load average",
+      "显示 1/5/15 分钟负载和运行时间",
+      "1/5/15-minute load and uptime",
+      "uptime",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "uptime", true, true },
+    { "系统信息", "System", "查看磁盘 IO", "Disk I/O",
+      "显示各磁盘的 IO 统计；需要安装 sysstat",
+      "I/O stats per disk; requires sysstat",
+      "iostat -x 1 3",
+      { "", "", "", "", "" }, { "", "", "", "", "" },
+      "iostat -x 1 3", true, true },
+};
+#define LINUX_BUILTIN_COUNT ((int)(sizeof g_linux_builtin / sizeof g_linux_builtin[0]))
+
+/* 取字段的宏，按语言 */
+#define LCMD_CAT(c)   (lang == 'z' ? (c)->category_zh : (c)->category_en)
+#define LCMD_NAME(c)  (lang == 'z' ? (c)->name_zh    : (c)->name_en)
+#define LCMD_DESC(c)  (lang == 'z' ? (c)->desc_zh    : (c)->desc_en)
+#define LCMD_HINT(c,k)(lang == 'z' ? (c)->hint_zh[k] : (c)->hint_en[k])
+
+
+
 static float g_term_font_size = 13.0f;
 static char g_settings_term_size_buf[16] = "";
 
@@ -462,6 +1010,10 @@ static void format_perm(mode_t perms, bool is_dir, char *out, size_t cap);
 static void start_forward(int tab_idx, int sess_idx, int cfg_idx);
 static void stop_forward(int idx);
 static void poll_forwards(cui_ctx *ui);
+
+static void sortable_header(cui_ctx *ui, const char *table, const char *label, float width,
+                            bool grow, cui_text_align align, cui_table_sort *sort, int column);
+static bool str_contains_ci(const char *haystack, const char *needle);
 
 static void b64enc(const uint8_t *in, int n, char *out) {
     int o = 0;
@@ -1139,6 +1691,564 @@ static void commands_panel(cui_ctx *ui) {
             g_cmd_add_cr = c->add_cr;
             g_cmd_edit_idx = edit_idx;
             g_cmd_add_dlg = true;
+        }
+    }
+}
+
+static void linux_cmds_init(void) {
+    if (g_linux_cmds) return;
+    g_linux_cmd_cap = LINUX_BUILTIN_COUNT + 16;
+    g_linux_cmds = (linux_cmd *)malloc(sizeof(linux_cmd) * g_linux_cmd_cap);
+    for (int i = 0; i < LINUX_BUILTIN_COUNT; i++)
+        g_linux_cmds[i] = g_linux_builtin[i];
+    g_linux_cmd_count = LINUX_BUILTIN_COUNT;
+}
+
+static void linux_cmds_free(void) {
+    free(g_linux_cmds);
+    g_linux_cmds = NULL;
+    g_linux_cmd_count = g_linux_cmd_cap = 0;
+}
+
+static int linux_cmds_add(const linux_cmd *c) {
+    linux_cmds_init();
+    if (g_linux_cmd_count >= MAX_LINUX_CMDS) return -1;
+    if (g_linux_cmd_count >= g_linux_cmd_cap) {
+        g_linux_cmd_cap = g_linux_cmd_cap ? g_linux_cmd_cap * 2 : 64;
+        g_linux_cmds = (linux_cmd *)realloc(g_linux_cmds, sizeof(linux_cmd) * g_linux_cmd_cap);
+    }
+    g_linux_cmds[g_linux_cmd_count] = *c;
+    return g_linux_cmd_count++;
+}
+
+static void linux_cmds_remove(int idx) {
+    if (idx < 0 || idx >= g_linux_cmd_count) return;
+    if (g_linux_cmds[idx].builtin) return;
+    for (int i = idx; i < g_linux_cmd_count - 1; i++)
+        g_linux_cmds[i] = g_linux_cmds[i + 1];
+    g_linux_cmd_count--;
+}
+
+static void linux_cmds_ini_path(char *out, size_t cap) {
+#ifdef _WIN32
+    const char *appdata = getenv("APPDATA");
+    if (appdata) snprintf(out, cap, "%s\\CUI\\linux_commands.ini", appdata);
+    else snprintf(out, cap, "linux_commands.ini");
+#else
+    snprintf(out, cap, "linux_commands.ini");
+#endif
+}
+
+static void save_linux_cmds(void) {
+    char path[512]; linux_cmds_ini_path(path, sizeof path);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    int n = 0;
+    for (int i = 0; i < g_linux_cmd_count; i++) {
+        if (g_linux_cmds[i].builtin) continue;
+        n++;
+        linux_cmd *c = &g_linux_cmds[i];
+        fprintf(f, "[cmd_%d]\n", n);
+        fprintf(f, "category_zh=%s\n", c->category_zh);
+        fprintf(f, "category_en=%s\n", c->category_en);
+        fprintf(f, "name_zh=%s\n", c->name_zh);
+        fprintf(f, "name_en=%s\n", c->name_en);
+        fprintf(f, "desc_zh=%s\n", c->desc_zh);
+        fprintf(f, "desc_en=%s\n", c->desc_en);
+        fprintf(f, "body=");
+        for (const char *p = c->body; *p; p++) {
+            if (*p == '\n') fprintf(f, "\\n");
+            else if (*p == '\\') fprintf(f, "\\\\");
+            else fputc(*p, f);
+        }
+        fprintf(f, "\n");
+        for (int k = 0; k < 5; k++) {
+            fprintf(f, "hint%d_zh=%s\n", k + 1, c->hint_zh[k]);
+            fprintf(f, "hint%d_en=%s\n", k + 1, c->hint_en[k]);
+        }
+        fprintf(f, "example=%s\n", c->example);
+        fprintf(f, "add_cr=%d\n", c->add_cr ? 1 : 0);
+        fprintf(f, "\n");
+    }
+    fclose(f);
+}
+
+static void load_linux_cmds(void) {
+    linux_cmds_init();
+    char path[512]; linux_cmds_ini_path(path, sizeof path);
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char line[2048];
+    linux_cmd cur; memset(&cur, 0, sizeof cur); cur.builtin = false;
+    int in_cmd = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *p = line;
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (!*p || *p == ';' || *p == '#') continue;
+        if (*p == '[') {
+            if (in_cmd) linux_cmds_add(&cur);
+            memset(&cur, 0, sizeof cur); cur.builtin = false;
+            in_cmd = 1;
+            continue;
+        }
+        if (!in_cmd) continue;
+        char *eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char *key = p, *val = eq + 1;
+        char *nl = strchr(val, '\n'); if (nl) *nl = 0;
+        if (!strcmp(key, "category_zh")) snprintf(cur.category_zh, sizeof cur.category_zh, "%s", val);
+        else if (!strcmp(key, "category_en")) snprintf(cur.category_en, sizeof cur.category_en, "%s", val);
+        else if (!strcmp(key, "name_zh")) snprintf(cur.name_zh, sizeof cur.name_zh, "%s", val);
+        else if (!strcmp(key, "name_en")) snprintf(cur.name_en, sizeof cur.name_en, "%s", val);
+        else if (!strcmp(key, "desc_zh")) snprintf(cur.desc_zh, sizeof cur.desc_zh, "%s", val);
+        else if (!strcmp(key, "desc_en")) snprintf(cur.desc_en, sizeof cur.desc_en, "%s", val);
+        else if (!strcmp(key, "body")) {
+            int n = 0;
+            for (const char *q = val; *q && n < (int)sizeof(cur.body) - 1; q++) {
+                if (*q == '\\' && q[1]) {
+                    if (q[1] == 'n') { cur.body[n++] = '\n'; q++; }
+                    else if (q[1] == '\\') { cur.body[n++] = '\\'; q++; }
+                    else cur.body[n++] = *q;
+                } else cur.body[n++] = *q;
+            }
+            cur.body[n] = 0;
+        }
+        else if (!strncmp(key, "hint", 4)) {
+            /* hintN_zh / hintN_en */
+            int n = 0, off = 0;
+            if (sscanf(key + 4, "%d_%n", &n, &off) == 1 && n >= 1 && n <= 5) {
+                const char *field = key + 4 + off;
+                if (!strcmp(field, "zh")) snprintf(cur.hint_zh[n-1], sizeof cur.hint_zh[n-1], "%s", val);
+                else if (!strcmp(field, "en")) snprintf(cur.hint_en[n-1], sizeof cur.hint_en[n-1], "%s", val);
+            }
+        }
+        else if (!strcmp(key, "example")) snprintf(cur.example, sizeof cur.example, "%s", val);
+        else if (!strcmp(key, "add_cr")) cur.add_cr = atoi(val) != 0;
+    }
+    if (in_cmd) linux_cmds_add(&cur);
+    fclose(f);
+}
+
+static int linux_cmd_cmp(const void *a, const void *b) {
+    const linux_cmd *ca = (const linux_cmd *)a;
+    const linux_cmd *cb = (const linux_cmd *)b;
+    int col = g_linux_sort.column;
+    int r = 0;
+    if (col < 0) {
+        /* 默认：分类 → 名称 */
+        r = strcmp(LCMD_CAT(ca), LCMD_CAT(cb));
+        if (r == 0) r = strcmp(LCMD_NAME(ca), LCMD_NAME(cb));
+    } else if (col == 0) {
+        r = strcmp(LCMD_CAT(ca), LCMD_CAT(cb));
+        if (r == 0) r = strcmp(LCMD_NAME(ca), LCMD_NAME(cb));
+    } else if (col == 1) {
+        r = strcmp(LCMD_NAME(ca), LCMD_NAME(cb));
+    } else if (col == 2) {
+        r = strcmp(ca->body, cb->body);
+    }
+    return g_linux_sort.descending ? -r : r;
+}
+
+/* 添加/编辑对话框的缓冲 */
+static linux_cmd g_linux_edit_buf;
+
+static void linux_cmds_panel(cui_ctx *ui) {
+    linux_cmds_init();
+
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .gap = 4) {
+        /* 标题行：标题 + 搜索 + 添加 */
+        /* 分类列表：从 g_linux_cmds 动态收集，去重，按当前语言显示 */
+        static char cat_names[64][64];
+        static const char *cat_ptrs[64];
+        int cat_n = 0;
+        snprintf(cat_names[cat_n], sizeof cat_names[cat_n], "%s", T("全部", "All"));
+        cat_ptrs[cat_n] = cat_names[cat_n];
+        cat_n++;
+        for (int i = 0; i < g_linux_cmd_count && cat_n < 64; i++) {
+            const char *cat = LCMD_CAT(&g_linux_cmds[i]);
+            bool found = false;
+            for (int j = 1; j < cat_n; j++)
+                if (!strcmp(cat_ptrs[j], cat)) { found = true; break; }
+            if (!found) {
+                snprintf(cat_names[cat_n], sizeof cat_names[cat_n], "%s", cat);
+                cat_ptrs[cat_n] = cat_names[cat_n];
+                cat_n++;
+            }
+        }
+        if (g_linux_cat_filter >= cat_n) g_linux_cat_filter = 0;
+
+        cui_row(ui, .width = CUI_FILL, .pad_x = 4, .pad_y = 4, .align = CUI_ALIGN_CENTER, .gap = 6) {
+            cui_box(ui, .width = CUI_GROW(1)) {
+                cui_text(ui, T("常用指令", "Common commands"),
+                         .font = CUI_FONT_MEDIUM, .size = 13);
+            }
+            cui_box(ui, .width = CUI_PX(200)) {
+                cui_search(ui, "linux-filter", g_linux_filter, sizeof g_linux_filter,
+                           .placeholder = T("过滤名称/代码/描述...", "Filter name/code/desc..."));
+            }
+            cui_box(ui, .width = CUI_PX(140)) {
+                cui_select(ui, "linux-cat", cat_ptrs, cat_n, &g_linux_cat_filter,
+                           .placeholder = T("分类", "Category"));
+            }
+            if (cui_icon_button(ui, CUI_ICON_REFRESH_CW,
+                                .tooltip = T("刷新列表", "Refresh list"))) {
+                /* 重新从外部文件加载自定义命令，保留内置 */
+                linux_cmds_free();
+                load_linux_cmds();
+                /* 恢复初始状态：默认排序 + 清空过滤 + 分类选“全部” */
+                g_linux_sort.column = -1;
+                g_linux_sort.descending = false;
+                g_linux_filter[0] = 0;
+                g_linux_cat_filter = 0;
+            }
+            if (cui_icon_button(ui, CUI_ICON_PLUS, .tooltip = T("添加自定义命令", "Add custom command"))) {
+                memset(&g_linux_edit_buf, 0, sizeof g_linux_edit_buf);
+                g_linux_edit_buf.builtin = false;
+                g_linux_edit_buf.add_cr = true;
+                snprintf(g_linux_edit_buf.category_zh, sizeof g_linux_edit_buf.category_zh, "自定义");
+                snprintf(g_linux_edit_buf.category_en, sizeof g_linux_edit_buf.category_en, "Custom");
+                g_linux_edit_idx = -1;
+                g_linux_add_dlg = true;
+            }
+        }
+        
+        hline(ui);
+
+        /* 表头：分类 / 名称 / 代码 / 操作 */
+        cui_row(ui, .width = CUI_FILL, .gap = 4, .pad_y = 4, .align = CUI_ALIGN_CENTER) {
+            sortable_header(ui, "linux", T("分类", "Category"), 90, false, CUI_TEXT_LEFT, &g_linux_sort, 0);
+            sortable_header(ui, "linux", T("名称 / 描述", "Name / Description"), 0, true, CUI_TEXT_LEFT, &g_linux_sort, 1);
+            sortable_header(ui, "linux", T("代码", "Code"), 280, false, CUI_TEXT_LEFT, &g_linux_sort, 2);
+            cui_box(ui, .width = CUI_PX(84)) {
+                cui_text(ui, T("操作", "Actions"), .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+        }
+        hline(ui);
+
+        /* 过滤 + 排序 */
+        int visible[256]; int vn = 0;
+        const char *sel_cat = (g_linux_cat_filter > 0 && g_linux_cat_filter < cat_n)
+                              ? cat_ptrs[g_linux_cat_filter] : NULL;
+        for (int i = 0; i < g_linux_cmd_count; i++) {
+            linux_cmd *c = &g_linux_cmds[i];
+            if (sel_cat && strcmp(LCMD_CAT(c), sel_cat) != 0) continue;
+            if (g_linux_filter[0]) {
+                if (!str_contains_ci(LCMD_NAME(c), g_linux_filter) &&
+                    !str_contains_ci(LCMD_DESC(c), g_linux_filter) &&
+                    !str_contains_ci(c->body, g_linux_filter) &&
+                    !str_contains_ci(LCMD_CAT(c), g_linux_filter))
+                    continue;
+            }
+            visible[vn++] = i;
+        }
+        /* 排序：用指针数组，不移动原数组 */
+        linux_cmd *ptrs[256];
+        for (int i = 0; i < vn; i++) ptrs[i] = &g_linux_cmds[visible[i]];
+        /* 手动插入排序，保持稳定 */
+        for (int i = 1; i < vn; i++) {
+            linux_cmd *key = ptrs[i];
+            int j = i - 1;
+            while (j >= 0 && linux_cmd_cmp(ptrs[j], key) > 0) {
+                ptrs[j + 1] = ptrs[j];
+                j--;
+            }
+            ptrs[j + 1] = key;
+        }
+
+        int run_idx = -1;
+        int edit_idx = -1;
+        int del_idx = -1;
+        cui_scroll(ui, .id = "linux-cmds-scroll", .height = CUI_GROW(1)) {
+            for (int k = 0; k < vn; k++) {
+                linux_cmd *c = ptrs[k];
+                int orig = (int)(c - g_linux_cmds);
+
+                cui_push_id_int(ui, orig);
+                char id[64]; snprintf(id, sizeof id, "lx-row-%d", orig);
+                cui_id row_id = cui_make_id(ui, id);
+                int row = cui__node_new(ui, row_id);
+                ui->nodes[row].w = CUI_FILL;
+                ui->nodes[row].h = CUI_PX(40);
+                cui__open(ui, row);
+                    cui_row(ui, .width = CUI_FILL, .gap = 4, .pad_x = 4, .align = CUI_ALIGN_CENTER) {
+                        cui_box(ui, .width = CUI_PX(90)) {
+                            cui_text(ui, LCMD_CAT(c), .size = 11,
+                                     .color = CUI_COLOR_TEXT_SECONDARY, .nowrap = true);
+                        }
+                        cui_box(ui, .width = CUI_GROW(1)) {
+                            cui_column(ui, .gap = 2) {
+                                cui_text(ui, LCMD_NAME(c), .size = 12, .nowrap = true);
+                                cui_text(ui, LCMD_DESC(c), .size = 10,
+                                         .color = CUI_COLOR_TEXT_MUTED, .nowrap = true);
+                            }
+                        }
+                        cui_box(ui, .width = CUI_PX(280)) {
+                            cui_text(ui, c->body, .font = CUI_FONT_MONO, .size = 11,
+                                     .nowrap = true, .color = CUI_COLOR_TEXT_SECONDARY);
+                        }
+                        cui_box(ui, .width = CUI_PX(84)) {
+                            cui_row(ui, .gap = 2, .align = CUI_ALIGN_CENTER) {
+                                if (cui_icon_button(ui, CUI_ICON_PLAY,
+                                                    .tooltip = T("执行", "Run"), .size = CUI_SIZE_SM))
+                                    run_idx = orig;
+                                if (!c->builtin) {
+                                    if (cui_icon_button(ui, CUI_ICON_PENCIL,
+                                                        .tooltip = T("编辑", "Edit"), .size = CUI_SIZE_SM))
+                                        edit_idx = orig;
+                                    if (cui_icon_button(ui, CUI_ICON_TRASH_2,
+                                                        .tooltip = T("删除", "Delete"), .size = CUI_SIZE_SM))
+                                        del_idx = orig;
+                                }
+                            }
+                        }
+                    }
+                cui__close(ui);
+                cui__mark_interactive(ui, row, 0);
+
+                cui_interact vr = cui__interact(ui, row_id, 0);
+                if (vr.hovered) cui__set_cursor(ui, CUI_CURSOR_HAND);
+                static bool prev_pressed[256];
+                bool clicked_now = vr.pressed && !prev_pressed[orig];
+                prev_pressed[orig] = vr.pressed;
+                if (clicked_now) {
+                    static double last_time[256];
+                    static int last_idx[256];
+                    double now = cui_time(ui);
+                    if (last_idx[orig] == orig && now - last_time[orig] < 0.35) {
+                        last_idx[orig] = -1;
+                        run_idx = orig;
+                    } else {
+                        last_idx[orig] = orig;
+                        last_time[orig] = now;
+                    }
+                }
+                cui_pop_id(ui);
+            }
+            if (vn == 0) {
+                cui_text(ui, T("没有匹配的命令", "No matching commands"),
+                         .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+        }
+
+        if (run_idx >= 0) {
+            g_linux_run_idx = run_idx;
+            g_linux_run_dlg = true;
+            for (int k = 0; k < 5; k++) g_linux_args[k][0] = 0;
+            snprintf(g_linux_preview, sizeof g_linux_preview, "%s", g_linux_cmds[run_idx].body);
+        }
+        if (edit_idx >= 0) {
+            g_linux_edit_buf = g_linux_cmds[edit_idx];
+            g_linux_edit_idx = edit_idx;
+            g_linux_edit_dlg = true;
+        }
+        if (del_idx >= 0) {
+            g_linux_del_idx = del_idx;
+            g_linux_del_dlg = true;
+        }
+    }
+}
+
+static void linux_run_dialog(cui_ctx *ui) {
+    if (!g_linux_run_dlg) return;
+    if (g_linux_run_idx < 0 || g_linux_run_idx >= g_linux_cmd_count) {
+        g_linux_run_dlg = false;
+        return;
+    }
+    linux_cmd *c = &g_linux_cmds[g_linux_run_idx];
+
+    cui_dialog(ui, T("执行命令", "Run command"), &g_linux_run_dlg, .width = 640) {
+        cui_text(ui, LCMD_NAME(c), .font = CUI_FONT_MEDIUM);
+        cui_text(ui, LCMD_DESC(c), .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
+        cui_gap(ui, 6);
+
+        /* 参数输入 */
+        for (int k = 0; k < 5; k++) {
+            const char *hint = LCMD_HINT(c, k);
+            if (!hint[0]) continue;
+            char label[64];
+            snprintf(label, sizeof label, T("参数%d", "Param %d"), k + 1);
+            char id[16]; snprintf(id, sizeof id, "lxarg%d", k);
+            cui_input(ui, id, g_linux_args[k], sizeof g_linux_args[k],
+                      .label = label, .placeholder = hint);
+        }
+
+        cui_gap(ui, 6);
+        cui_text(ui, T("命令（可编辑）", "Command (editable)"),
+                 .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+        cui_code_editor(ui, "lx-preview", g_linux_preview, sizeof g_linux_preview,
+                        .lang = "shell", .height = 80, .no_line_numbers = true);
+
+        if (c->example[0]) {
+            cui_text(ui, T("示例：", "Example:"), .size = 11, .color = CUI_COLOR_TEXT_MUTED);
+            cui_text(ui, c->example, .size = 11, .font = CUI_FONT_MONO,
+                     .color = CUI_COLOR_TEXT_MUTED, .nowrap = true);
+        }
+
+        cui_dialog_footer(ui) {
+            if (cui_button(ui, T("取消", "Cancel"), .variant = CUI_BUTTON_GHOST))
+                g_linux_run_dlg = false;
+
+            if (cui_button(ui, T("填入", "Fill"), .variant = CUI_BUTTON_OUTLINE)) {
+                snprintf(g_linux_preview, sizeof g_linux_preview, "%s", c->body);
+                for (int k = 4; k >= 0; k--) {
+                    const char *hint = LCMD_HINT(c, k);
+                    if (!hint[0] || !g_linux_args[k][0]) continue;
+                    char pat[8];
+                    snprintf(pat, sizeof pat, "{%d}", k + 1);
+                    char out[2048]; int o = 0;
+                    const char *p = g_linux_preview;
+                    size_t plen = strlen(pat);
+                    while (*p && o < (int)sizeof out - 1) {
+                        if (!strncmp(p, pat, plen)) {
+                            size_t alen = strlen(g_linux_args[k]);
+                            if (o + (int)alen >= (int)sizeof out - 1) break;
+                            memcpy(out + o, g_linux_args[k], alen);
+                            o += (int)alen;
+                            p += plen;
+                        } else out[o++] = *p++;
+                    }
+                    out[o] = 0;
+                    snprintf(g_linux_preview, sizeof g_linux_preview, "%s", out);
+                }
+            }
+
+            if (cui_button(ui, T("执行", "Run"), .variant = CUI_BUTTON_PRIMARY)) {
+                if (g_ssh_tab >= 0 && g_tab_chan[g_ssh_tab] && g_linux_preview[0]) {
+                    ssh_channel_write(g_tab_chan[g_ssh_tab], g_linux_preview,
+                                      (uint32_t)strlen(g_linux_preview));
+                    if (c->add_cr)
+                        ssh_channel_write(g_tab_chan[g_ssh_tab], "\r", 1);
+                    log_status_toast(ui, CUI_TONE_INFO,
+                                     T("执行：%s", "Run: %s"), LCMD_NAME(c));
+                } else {
+                    log_status_toast(ui, CUI_TONE_WARNING,
+                                     T("没有打开的终端，无法执行", "No open terminal to run in"));
+                }
+                g_linux_run_dlg = false;
+            }
+        }
+    }
+}
+
+static void linux_edit_dialog(cui_ctx *ui) {
+    if (!g_linux_add_dlg && !g_linux_edit_dlg) return;
+    bool is_edit = g_linux_edit_dlg;
+    linux_cmd *b = &g_linux_edit_buf;
+
+    cui_dialog(ui, is_edit ? T("编辑自定义命令", "Edit custom command")
+                           : T("添加自定义命令", "Add custom command"),
+               is_edit ? &g_linux_edit_dlg : &g_linux_add_dlg, .width = 640) {
+
+        /* ← 新增：表单主体放进滚动区 */
+        cui_scroll(ui, .id = "lxe-scroll", .height = CUI_PX(460)) {
+            cui_column(ui, .width = CUI_FILL, .gap = 6) {
+                /* 分类 */
+                cui_text(ui, T("分类", "Category"), .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                cui_input(ui, "lxe-cat-zh", b->category_zh, sizeof b->category_zh,
+                          .label = T("中文分类", "Chinese category"));
+                cui_input(ui, "lxe-cat-en", b->category_en, sizeof b->category_en,
+                          .label = T("英文分类", "English category"));
+
+                cui_gap(ui, 6);
+                /* 名称与描述 */
+                cui_text(ui, T("名称与描述", "Name and description"),
+                         .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                cui_input(ui, "lxe-name-zh", b->name_zh, sizeof b->name_zh, .label = T("中文名称", "Chinese name"));
+                cui_input(ui, "lxe-name-en", b->name_en, sizeof b->name_en, .label = T("英文名称", "English name"));
+                cui_input(ui, "lxe-desc-zh", b->desc_zh, sizeof b->desc_zh, .label = T("中文描述", "Chinese description"));
+                cui_input(ui, "lxe-desc-en", b->desc_en, sizeof b->desc_en, .label = T("英文描述", "English description"));
+
+                cui_gap(ui, 6);
+                /* 命令代码 */
+                cui_text(ui, T("命令代码（用 {1}..{5} 表示参数）", "Command ({1}..{5} for parameters)"),
+                         .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                cui_code_editor(ui, "lxe-body", b->body, sizeof b->body,
+                                .lang = "shell", .height = 80, .no_line_numbers = true);
+
+                cui_gap(ui, 6);
+                /* 参数提示 */
+                cui_text(ui, T("参数提示（留空表示无此参数）", "Parameter hints (empty = no such parameter)"),
+                         .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                for (int k = 0; k < 5; k++) {
+                    char label_zh[32], label_en[32], id_zh[16], id_en[16];
+                    snprintf(label_zh, sizeof label_zh, "参数%d 中文提示", k + 1);
+                    snprintf(label_en, sizeof label_en, "Param %d Chinese hint", k + 1);
+                    snprintf(id_zh, sizeof id_zh, "lxe-hz%d", k);
+                    snprintf(id_en, sizeof id_en, "lxe-he%d", k);
+                    cui_input(ui, id_zh, b->hint_zh[k], sizeof b->hint_zh[k], .label = label_zh);
+                    cui_input(ui, id_en, b->hint_en[k], sizeof b->hint_en[k], .label = label_en);
+                }
+
+                cui_gap(ui, 6);
+                /* 示例 */
+                cui_text(ui, T("示例", "Example"), .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                cui_input(ui, "lxe-ex", b->example, sizeof b->example);
+
+                cui_checkbox(ui, T("执行后加回车", "Append CR after run"), &b->add_cr);
+            }
+        }
+
+        cui_dialog_footer(ui) {
+            if (cui_button(ui, T("取消", "Cancel"), .variant = CUI_BUTTON_GHOST)) {
+                if (is_edit) g_linux_edit_dlg = false;
+                else g_linux_add_dlg = false;
+            }
+            if (cui_button(ui, T("保存", "Save"), .variant = CUI_BUTTON_PRIMARY)) {
+                if (b->name_zh[0] && b->body[0]) {
+                    if (is_edit && g_linux_edit_idx >= 0 && g_linux_edit_idx < g_linux_cmd_count) {
+                        g_linux_cmds[g_linux_edit_idx] = *b;
+                        g_linux_cmds[g_linux_edit_idx].builtin = false;
+                        log_status_toast(ui, CUI_TONE_SUCCESS,
+                                         T("已保存命令：%s", "Command saved: %s"),
+                                         b->name_zh);
+                    } else {
+                        int idx = linux_cmds_add(b);
+                        if (idx >= 0) {
+                            log_status_toast(ui, CUI_TONE_SUCCESS,
+                                             T("已添加命令：%s", "Command added: %s"),
+                                             b->name_zh);
+                        } else {
+                            log_status_toast(ui, CUI_TONE_DANGER,
+                                             T("添加失败：命令数量已达上限", "Add failed: command limit reached"));
+                        }
+                    }
+                    save_linux_cmds();
+                    /* 清空过滤和分类，确保新命令可见 */
+                    g_linux_filter[0] = 0;
+                    g_linux_cat_filter = 0;
+                } else {
+                    log_status_toast(ui, CUI_TONE_WARNING,
+                                     T("名称和命令代码不能为空", "Name and command cannot be empty"));
+                    return;   /* 不关对话框，让用户补 */
+                }
+                if (is_edit) g_linux_edit_dlg = false;
+                else g_linux_add_dlg = false;
+            }
+        }
+    }
+}
+
+static void linux_del_dialog(cui_ctx *ui) {
+    if (!g_linux_del_dlg) return;
+    if (g_linux_del_idx < 0 || g_linux_del_idx >= g_linux_cmd_count ||
+        g_linux_cmds[g_linux_del_idx].builtin) {
+        g_linux_del_dlg = false;
+        return;
+    }
+    linux_cmd *c = &g_linux_cmds[g_linux_del_idx];
+
+    cui_dialog(ui, T("确认删除", "Confirm delete"), &g_linux_del_dlg, .width = 380) {
+        cui_textf(ui, T("确定删除自定义命令“%s”吗？", "Delete custom command \"%s\"?"),
+                  LCMD_NAME(c));
+        cui_dialog_footer(ui) {
+            if (cui_button(ui, T("取消", "Cancel"), .variant = CUI_BUTTON_GHOST))
+                g_linux_del_dlg = false;
+            if (cui_button(ui, T("删除", "Delete"), .variant = CUI_BUTTON_DANGER)) {
+                linux_cmds_remove(g_linux_del_idx);
+                save_linux_cmds();
+                g_linux_del_dlg = false;
+            }
         }
     }
 }
@@ -5181,11 +6291,12 @@ static void right_panel(cui_ctx *ui) {
     if (g_show_fm_panel) {
         cui_split_next(ui);
         cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .gap = 4) {
-            static const char *lz[] = { "文件", "命令" };
-            static const char *le[] = { "Files", "Commands" };
-            cui_tabs_ex(ui, "fm-tabs", lang == 'z' ? lz : le, 2, &g_fm_tab, NULL);
-            if (g_fm_tab == 0) files_panel(ui);
-            else                commands_panel(ui);
+            static const char *lz[] = { "文件", "命令", "常用指令" };
+            static const char *le[] = { "Files", "Commands", "Common" };
+            cui_tabs_ex(ui, "fm-tabs", lang == 'z' ? lz : le, 3, &g_fm_tab, NULL);
+            if (g_fm_tab == 0)      files_panel(ui);
+            else if (g_fm_tab == 1) commands_panel(ui);
+            else                    linux_cmds_panel(ui);
         }
     }
     cui_split_end(ui);
@@ -5571,15 +6682,20 @@ static void frame(cui_ctx *ui, void *user) {
         int status_node = cui__node_new(ui, status_id);
         ui->nodes[status_node].w = CUI_FILL;
         ui->nodes[status_node].h = CUI_PX(26);
-        //ui->nodes[status_node].bg = CUI_COLOR_SURFACE_MUTED;
         ui->nodes[status_node].bg = cui_color_of(ui, CUI_COLOR_SURFACE_MUTED);
         ui->nodes[status_node].pad[1] = 10;
         ui->nodes[status_node].pad[3] = 10;
         cui__open(ui, status_node);
-            cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-                cui_text(ui, g_status[0] ? g_status : T("就绪", "Ready"),
-                         .size = 11, .color = CUI_COLOR_TEXT_SECONDARY,
-                         .nowrap = true, .width = CUI_GROW(1));
+            cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 12) {
+                /* 左侧：状态文本，点击打开日志 */
+                cui_box(ui, .width = CUI_GROW(1)) {
+                    cui_text(ui, g_status[0] ? g_status : T("就绪", "Ready"),
+                             .size = 11, .color = CUI_COLOR_TEXT_SECONDARY,
+                             .nowrap = true);
+                }
+                /* 右侧：固定提示 */
+                cui_text(ui, T("Ctrl+Shift+V 粘贴", "Ctrl+Shift+V paste"),
+                         .size = 11, .color = CUI_COLOR_TEXT_MUTED, .nowrap = true);
             }
         cui__close(ui);
         cui__mark_interactive(ui, status_node, 0);
@@ -5606,6 +6722,9 @@ static void frame(cui_ctx *ui, void *user) {
     about_dialog(ui);
     history_dialog(ui);
     cmd_add_dialog(ui);
+    linux_run_dialog(ui);
+    linux_edit_dialog(ui);
+    linux_del_dialog(ui);
     rename_dialog(ui);
     forwards_dialog(ui);
 }
@@ -5623,6 +6742,7 @@ int main(void) {
     load_sessions();
     load_transfers(); 
     load_cmds();
+    load_linux_cmds();
 
     cui_app *app = cui_app_create(&(cui_app_desc){
         .title = "SSH Terminal",
@@ -5677,6 +6797,8 @@ int main(void) {
             g_win_h = (int)(vp.y + 0.5f);
         }
         save_sessions();
+        save_linux_cmds();
+        linux_cmds_free();
     }
     for (int k = 0; k < g_tab_count; k++) {
         if (g_tab_sftp[k]) { sftp_free(g_tab_sftp[k]); g_tab_sftp[k] = NULL; }

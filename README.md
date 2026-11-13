@@ -2,7 +2,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/xuqb1/ssh_terminal?style=social)](https://github.com/xuqb1/ssh_terminal)
 
-一个用 C 语言 + [CUI 库](https://github.com/yappologistic/CUI) + libssh 写的 SSH 终端与 SFTP 文件管理器，单文件实现（`ssh_terminal.c`），Windows 为主，POSIX 分支保留。如果这个工具对你有帮助，欢迎给个 Star ⭐，谢谢！https://github.com/xuqb1/ssh_terminal
+一个用 C 语言 + [CUI 库](https://github.com/yappologistic/CUI) + [libssh](https://www.libssh.org/) 写的 SSH 终端与 SFTP 文件管理器，单文件实现（`ssh_terminal.c`），Windows 为主，POSIX 分支保留。如果这个工具对你有帮助，欢迎给个 Star ⭐，谢谢！https://github.com/xuqb1/ssh_terminal
 
 ![SSH Terminal 截图](snipshop.png)
 
@@ -70,6 +70,17 @@
 - 一键执行、复制到剪贴板、双击编辑
 - 命令持久化
 
+### 常用指令
+- 内置 80+ 条常用 Linux 命令，分 8 个分类：
+  文件与磁盘、进程与服务、网络、系统信息、文本处理、nano、vi/vim、Java
+- 分类下拉过滤 + 名称/描述/代码搜索
+- 按分类、名称、代码排序，默认按分类+名称
+- 命令代码用 `{1}`..`{5}` 表示参数，双击打开参数表单
+- 参数表单有中文/英文提示，填入后可预览、可编辑、一键执行
+- 自定义命令：添加 / 编辑 / 删除，存外部文件，可跨会话复用
+- 自定义命令有标识，与内置命令区分；内置只读
+- 依赖外部包的命令在描述中注明“需要安装 xxx”
+
 ### 端口转发
 - 本地转发（-L）：本机端口 → 远端可访问的地址
 - 配置跟会话保存，每个会话最多 8 条
@@ -82,21 +93,24 @@
 - 中英文切换
 - 窗口大小、分隔条比例、面板显示持久化
 - 设置窗口：下载目录、外部编辑器、SSH 私钥、文本文件后缀/无后缀列表
-- 状态栏日志（最近 100 条），关键动作同时弹 Toast
+- 状态栏日志（最近 100 条）+ 右侧粘贴提示，关键动作同时弹 Toast
 - 关于窗口：功能列表、联系方式、捐赠提示
 
 ## 设置持久化
 
 - 会话与设置：`%APPDATA%\CUI\sessions.ini`
 - 命令列表：`%APPDATA%\CUI\commands.ini`
+- 常用指令自定义项：`%APPDATA%\CUI\linux_commands.ini`
 - 传输记录：`%APPDATA%\CUI\updownload.ini`
 
 非 Windows 下为当前目录同名文件。
 
 ## 依赖
 
+## 依赖
+
 - [CUI](https://github.com/yappologistic/CUI)：即时模式 GUI 库，提供 `cui.h`、`cui_app.h`、`cui_internal.h`、`cui_icons.h`
-- [libssh](https://www.libssh.org/)：SSH / SFTP
+- [libssh](https://www.libssh.org/)：SSH / SFTP（源码：[gitlab.com/libssh/libssh-mirror](https://gitlab.com/libssh/libssh-mirror)，GitHub 镜像：[github.com/libssh/libssh-mirror](https://github.com/libssh/libssh-mirror)）
 - Windows：MSVC 或 MinGW，链接 `comdlg32.lib`、`shell32.lib`、`ole32.lib`、`ws2_32.lib`
 
 把 `ssh_terminal.c`、`my_terminal.c/h` 和 CUI 的头文件放进同一工程，配置好 libssh 的头文件和库路径即可编译。
@@ -132,4 +146,4 @@ https://github.com/xuqb1/ssh_terminal
 
 ## 许可
 
-基于 CUI（MIT）。使用前请遵守各自许可。
+基于 [CUI](https://github.com/yappologistic/CUI)（MIT）和 [libssh](https://www.libssh.org/)（LGPL）。使用前请遵守各自许可。
